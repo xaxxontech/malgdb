@@ -3,9 +3,57 @@ import serial, time
 # send commands to device, format: char {0-255 (optional)} {0-255 (optional)}
 # press ENTER to see buffered output
 
+def checkBoardId():
+	ser.write("x\n") # check board id
+	line = ""
+	time.sleep(0.1)
+	while ser.inWaiting() > 0:
+		line = ser.readline().strip()
+		print(line)
+
+	if not line == "<id::malgdb>":
+		print("incorrect board id")
+		return False
+	
+	return True
+
+
 # change port number to match device
-ser = serial.Serial('/dev/ttyUSB0', 115200)
-time.sleep(2)
+# ser = serial.Serial('/dev/ttyUSB0', 115200)
+# time.sleep(2)
+
+
+# usb connect
+portnum = 0;
+
+while portnum <= 6:
+	port = '/dev/ttyUSB'+str(portnum)
+	print("trying port: "+port)
+	
+	try: 
+		ser = serial.Serial(port, 115200,timeout=10)
+	except serial.SerialException: 
+		portnum += 1
+		time.sleep(1)
+		continue
+		
+	time.sleep(2)
+
+	if checkBoardId():
+		break
+		
+	ser.close()
+	time.sleep(1)
+	portnum += 1
+
+
+ser.write("y\n") # get version
+line = ""
+time.sleep(0.1)
+while ser.inWaiting() > 0:
+	line = ser.readline().strip()
+	print(line)
+
 
 while 1:
 	while ser.inWaiting() > 0:

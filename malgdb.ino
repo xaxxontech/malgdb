@@ -22,6 +22,7 @@ SPOT LIGHT = 'p', [0-255] (intensity)
 ODOMETRY_START = 'i' (start recording encoder and gyro, zero values)
 ODOMETRY_STOP = 'j' (stop recording encoder and gyro, and report)
 ODOMETRY_REPORT = 'k' (report current encoder and gyro counts, then zero counts)
+GYRO_TEST = 'g'
 PING = 'c' (heartbeat)
 EEPROM_CLEAR = '8' (set entire eeprom bank to 0)
 EEPROM_READ = '9' (read camhoriz position) 
@@ -107,6 +108,8 @@ const double gyroSampleRate = 0.00263157; // 380hz, milliseconds
 // const double gyroSampleRate =    0.00526315; // 190hz, milliseconds
 int gyroZ[32]; // max FIFO buffer size
 int gyrosamples = 0;
+// double driftDegPerSec = 0;
+boolean gyroFifoReadAfterStop = false;
 // end of gyro
 
 // encoder
@@ -193,21 +196,22 @@ void loop(){
 	if (readAngle && !stopped) { // && time - gyroReadFifoInterval > lastGyroFifoRead) { 
 		if (getGyroFIFOcontents()) {
 			boolean checkstop = false;
-			if (stopPending && (directioncmd ==3 || directioncmd==4) && time- lastcmd > 80) checkstop = true;
-			boolean callstopdetect = false;
+			if (stopPending && (directioncmd ==3 || directioncmd==4) && time- lastcmd > 0) checkstop = true; //was time-lastcmd>80
+			int callstopdetect = 0;
 
 			for (int i=0; i<gyrosamples; i++ ){
 				int z = gyroZ[i]+zOff;
-				double degPerSec = (double) z * 250/0x7fff * -1; // negate because typically mounted upside down
+				double degPerSec = (double) z * 250/0x7fff * -1; // using 250dps default scale, negate because typically mounted upside down
+				// degPerSec -= driftDegPerSec;
 				angle += degPerSec * gyroSampleRate;
 				if (checkstop) {
-					if (abs(z)<100) { // magic stop constant (was 150 for max2100 gyro)
-						callstopdetect = true;
+					if (abs(z) < 75) { // magic stop constant (was 150 for max2100 gyro)
+						callstopdetect ++;
 					}
 				}
 			}
 
-			if (callstopdetect)  stopDetect();
+			if (callstopdetect > 0)  stopDetect(); // was 0
 		}
 	}
 	
@@ -222,6 +226,12 @@ void loop(){
 				zavg /= gyrosamples;
 				
 				zOff = 0 - zavg;
+				// driftDegPerSec = (double) zavg * 250/0x7fff * -1; 
+				
+				// TODO: testing only, nuke!
+				// Serial.print("<zOff: ");
+				// Serial.print(zOff);
+				// Serial.println(">");
 			}
 		}
 		lastGyroZero = time;
@@ -490,8 +500,9 @@ boolean getGyroFIFOcontents() {
 	
 	// TODO: testing
 	// note: always triggered after starting from full stop
-	// if (ovr==1 && readAngle && !stopped) Serial.println("<gyroOVR>"); 
-	
+	if (ovr==1 && readAngle && gyroFifoReadAfterStop) Serial.println("<gyroOVR>");  // && !stopped 
+	if (!stopped) gyroFifoReadAfterStop = true;
+		
 	if (gyrosamples == 0)  return false; 
 	
 	// read Z only 
@@ -511,6 +522,8 @@ boolean getGyroFIFOcontents() {
 		
 		gyroZ[n] = zb<<8 | za;
 	}
+	
+	// if (ovr==1 && readAngle) return false; // TODO: testing
 	
 	return true;
 }
@@ -550,6 +563,7 @@ void stopDetect() {
 	stopped = true;
 	directioncmd = 0;
 	lastGyroZero = time; // in case still moving a bit...
+	gyroFifoReadAfterStop = false;
 }
 
 ISR(PCINT1_vect) {
@@ -562,7 +576,7 @@ ISR(PCINT1_vect) {
 			encoderPinAtZero = false;
 			encoderTicks ++;
 			unsigned long t = millis()/timemult;
-			if (t - lastEncoderTick > 25) { stopdetected = true; }
+			if (t - lastEncoderTick > 25) { stopdetected = true; } // was 25
 			lastEncoderTick = t;
 		}
 	}
@@ -585,6 +599,6 @@ byte gyroRead(int addr) {
 }
 
 void version() {
-	Serial.println("<version:1.05>"); 
+	Serial.println("<version:1.12>"); 
 }
 
