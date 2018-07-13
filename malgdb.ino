@@ -86,6 +86,8 @@ unsigned long time = 0;
 unsigned long lastcmd = 0;
 const unsigned long hostTimeout = 10000; // stop motors if no steady ping from host
 unsigned long stoptime = 0;
+int loopinc = 0; // TODO: testing
+unsigned long lastloopinc = 0; // TODO: testing
 
 // command byte buffer 
 const int MAX_BUFFER = 32;
@@ -101,15 +103,18 @@ const double timemult = 64;
 boolean readAngle = false;
 double angle = 0;
 // const double calibrationComp = 1.047; // 1.047; // 1.094;
-const unsigned long gyroZeroInterval = 2000;
-unsigned long lastGyroZero = 0;
+const unsigned long GYROZEROINTERVAL = 2000;
+unsigned long nextGyroZero = 0;
 int zOff = 0;
-const double gyroSampleRate = 0.00263157; // 380hz, milliseconds
+// const double gyroSampleRate = 0.00263157; // 380hz, milliseconds
 // const double gyroSampleRate =    0.00526315; // 190hz, milliseconds
+const double gyroSampleRate =    0.0013158; // 760hz, milliseconds
 int gyroZ[32]; // max FIFO buffer size
 int gyrosamples = 0;
 // double driftDegPerSec = 0;
 boolean gyroFifoReadAfterStop = false;
+int gyrozerosamples = 0;
+unsigned long gyrozeroavg = 0;
 // end of gyro
 
 // encoder
@@ -173,8 +178,11 @@ void setup() {
 	// gyro setup
 	gyroWrite(0x24, 64); // CTRL_REG5 01000000 FIFO enable
 	gyroWrite(0x2E, 64); // FIFO_CTRL_REG 01000000 FIFO stream mode
-	gyroWrite(0x20, 172); // CTRL_REG1 10 10 1 1 0 0 380Hz ODR, 50Hz LPF2, pwr normal, z, x, y
+	// gyroWrite(0x20, 172); // CTRL_REG1 10 10 1 1 0 0 380Hz ODR, 50Hz LPF2, pwr normal, z, x, y
+	// gyroWrite(0x20, 175); // CTRL_REG1 10 10 1 1 1 1 380Hz ODR, 50Hz LPF2, pwr normal, z, x, y
 	// gyroWrite(0x20, 108); // CTRL_REG1 01 10 1 1 0 0 190Hz ODR, 50Hz LPF2, pwr normal, z, x, y 
+	gyroWrite(0x20, 239); // CTRL_REG1 11 10 1 1 1 1 760Hz ODR, 50Hz LPF2, pwr normal, z, x, y 
+	// gyroWrite(0x20, 204); // CTRL_REG1 11 00 1 1 0 0 760Hz ODR, 30Hz LPF2, pwr normal, z, x, y 
 
 	
 	// encoder read interrupt setup
@@ -197,44 +205,82 @@ void loop(){
 		if (getGyroFIFOcontents()) {
 			boolean checkstop = false;
 			if (stopPending && (directioncmd ==3 || directioncmd==4) && time- lastcmd > 0) checkstop = true; //was time-lastcmd>80
-			int callstopdetect = 0;
+			
+			int zavg = 0;
 
-			for (int i=0; i<gyrosamples; i++ ){
+			for (int i=0; i<gyrosamples; i++ ) {
 				int z = gyroZ[i]+zOff;
 				double degPerSec = (double) z * 250/0x7fff * -1; // using 250dps default scale, negate because typically mounted upside down
-				// degPerSec -= driftDegPerSec;
 				angle += degPerSec * gyroSampleRate;
-				if (checkstop) {
-					if (abs(z) < 75) { // magic stop constant (was 150 for max2100 gyro)
-						callstopdetect ++;
-					}
-				}
+				
+				zavg += z;
 			}
-
-			if (callstopdetect > 0)  stopDetect(); // was 0
+			
+			zavg /= gyrosamples;
+			if (checkstop && abs(zavg) < 150) stopDetect();
+			
+			// Serial.println(gyrosamples); // almost always 1!
 		}
+		
 	}
 	
 	// periodically determine gyro zero offset when stopped
-	if (time - gyroZeroInterval > lastGyroZero && time >= gyroZeroInterval) {
+	if (false) { // (time > nextGyroZero && time >= GYROZEROINTERVAL) {
 		if (stopped) {
 			if (getGyroFIFOcontents()) {
 				int zavg = 0;
 				for (int i=0; i<gyrosamples; i++) {
 					zavg += gyroZ[i];
 				}
-				zavg /= gyrosamples;
-				
+				zavg /= gyrosamples;  
 				zOff = 0 - zavg;
-				// driftDegPerSec = (double) zavg * 250/0x7fff * -1; 
+				
+				// driftDegPerSec = (double) zavg * 250/0x7fff * -1; // testing
 				
 				// TODO: testing only, nuke!
 				// Serial.print("<zOff: ");
 				// Serial.print(zOff);
 				// Serial.println(">");
+				
+				// testing offset closest to zero
+				// int zmin = 32767;
+				// for (int i=0; i<gyrosamples; i++) {
+					// if (abs(gyroZ[i]) < abs(zmin)) zmin = gyroZ[i];
+				// }
+				// zOff = -zmin;
 			}
+			else Serial.println("<getGyroFIFOcontents 0 samples");
 		}
-		lastGyroZero = time;
+		nextGyroZero = time + GYROZEROINTERVAL;
+	}
+	
+	if (time > nextGyroZero && time > 2000) {
+		if (stopped) {
+			gyroRead();
+			gyrozeroavg += gyroZ[0];
+			gyrozerosamples ++;
+			
+			if (gyrozerosamples > 1000) {
+				
+				zOff = -gyrozeroavg/gyrozerosamples;
+				zOff *= 0.75;
+				
+				// TODO: testing only, nuke!
+				// Serial.print("<zOff: ");
+				// Serial.print(zOff);
+				// Serial.println(">");
+				
+				gyrozerosamples = 0;
+				gyrozeroavg = 0;
+			}
+			nextGyroZero = time + 3;
+		}
+		else {
+			gyrozerosamples = 0;
+			gyrozeroavg = 0;
+			nextGyroZero = time + 1000;
+		}
+		
 	}
 	
 	// allow for slow down to complete stop, timed
@@ -250,6 +296,7 @@ void loop(){
 		}
 	}
 	
+	// firmware timed moves
 	if (stoptime != 0 && time > stoptime) {
 		stop();
 		stoptime = 0;
@@ -266,6 +313,10 @@ void loop(){
 		 lastcmd = time; 
 	}
 
+	// loopinc ++;
+	// if (loopinc > 1000) {
+		// Serial.println(
+	// }
 }
 
 // 
@@ -467,6 +518,7 @@ void parseCommand(){
 	else if (buffer[0] == 'k') { // ODOMETRY_REPORT 
 		printMoved();	
 	}
+	else if (buffer[0] == 'g') gyroTest();
 	
 	else if (buffer[0] == '8') { // clear eeprom
 		for (int i = 0; i < 512; i++)
@@ -481,7 +533,7 @@ void parseCommand(){
 	}
 	else if (buffer[0] == 'a') {
 		// I2c.write(SLAVEI2C, 0x00, buffer[1]); // TODO: fix
-	}
+	}	
 	
 /* end of command buffer[0] list */	
 
@@ -503,7 +555,10 @@ boolean getGyroFIFOcontents() {
 	if (ovr==1 && readAngle && gyroFifoReadAfterStop) Serial.println("<gyroOVR>");  // && !stopped 
 	if (!stopped) gyroFifoReadAfterStop = true;
 		
-	if (gyrosamples == 0)  return false; 
+	if (gyrosamples == 0) {
+		// Serial.println("<gyrosamples == 0>"); // TODO: Testing
+		return false; 
+	 }
 	
 	// read Z only 
 	int i = 0;
@@ -528,6 +583,58 @@ boolean getGyroFIFOcontents() {
 	return true;
 }
 
+void gyroTest() {
+	Serial.print("<");
+
+	gyroRead();
+	Serial.print("z: ");
+	Serial.println(gyroZ[0]);
+	
+	if (!getGyroFIFOcontents()) {
+		Serial.println("<getGyroFIFOcontents false>");
+		return;
+	}
+	
+	Serial.print("<");
+	
+	Serial.print("zOff: ");
+	Serial.println(zOff);
+
+	Serial.print("gyrosamples: ");
+	Serial.println(gyrosamples);
+			
+	int zavg = 0;
+	for (int i=0; i<gyrosamples; i++ ) {
+		Serial.print(gyroZ[i]);
+		Serial.print(" ");	
+		zavg += gyroZ[i];	
+	}
+	Serial.println("");
+
+	zavg /= gyrosamples;
+	Serial.print("zavg: ");
+	Serial.print(zavg);
+	
+	Serial.println(">");
+	
+}
+
+void gyroRead() {
+	Wire.beginTransmission(GYROaddr);
+	Wire.write(0x2C | (1 << 7)); // shift required to read multiple vals
+	Wire.endTransmission();
+	Wire.requestFrom(GYROaddr, 2);
+	
+	int za =0;
+	int zb = 0;
+	while (Wire.available()) {
+		za= Wire.read();
+		zb=Wire.read();
+	}
+	
+	gyroZ[0] = zb<<8 | za;
+}
+
 void printMoved() {
 	double revs = 0;
 	if (directioncmd ==1 || directioncmd == 2) {
@@ -550,9 +657,12 @@ void stop() {
 	analogWrite(pwmB, 0);
 	
 	if (!stopped) {
-		stopCommand = time;
-		stopPending = true;	
-		stoptime = 0;
+		if (readAngle || readEncoder) {
+			stopCommand = time;
+			stopPending = true;	
+			stoptime = 0;
+		}
+		else stopped = true;
 	}
 }
 
@@ -562,7 +672,7 @@ void stopDetect() {
 	stopPending = false;
 	stopped = true;
 	directioncmd = 0;
-	lastGyroZero = time; // in case still moving a bit...
+	nextGyroZero = time + GYROZEROINTERVAL; 
 	gyroFifoReadAfterStop = false;
 }
 
@@ -599,6 +709,6 @@ byte gyroRead(int addr) {
 }
 
 void version() {
-	Serial.println("<version:1.12>"); 
+	Serial.println("<version:1.13>"); 
 }
 
