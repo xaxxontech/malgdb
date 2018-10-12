@@ -263,7 +263,7 @@ void loop(){
 			if (gyrozerosamples > 1000) {
 				
 				zOff = -gyrozeroavg/gyrozerosamples;
-				zOff *= 0.75;
+				// zOff *= 0.75;
 				
 				// TODO: testing only, nuke!
 				// Serial.print("<zOff: ");
@@ -709,6 +709,6 @@ byte gyroRead(int addr) {
 }
 
 void version() {
-	Serial.println("<version:1.13>"); 
+	Serial.println("<version:1.14>"); 
 }
 

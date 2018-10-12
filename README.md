@@ -1,6 +1,6 @@
 # MALG #
 
-Firmware for Xaxxon MALG PCB (revB) - [pololu L3GD20](https://www.pololu.com/product/2125) gyro daughterboard variant
+Firmware for Xaxxon MALG PCB (revB and v3) [pololu L3GD20](https://www.pololu.com/product/2125) gyro daughterboard variant
 
 Arduino IDE sketch
 
