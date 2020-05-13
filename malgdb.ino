@@ -22,7 +22,6 @@ SPOT LIGHT = 'p', [0-255] (intensity)
 ODOMETRY_START = 'i' (start recording encoder and gyro, zero values)
 ODOMETRY_STOP = 'j' (stop recording encoder and gyro, and report)
 ODOMETRY_REPORT = 'k' (report current encoder and gyro counts, then zero counts)
-GYRO_TEST = 'g'
 PING = 'c' (heartbeat)
 EEPROM_CLEAR = '8' (set entire eeprom bank to 0)
 EEPROM_READ = '9' (read camhoriz position) 
@@ -115,7 +114,7 @@ boolean gyroFifoReadAfterStop = false;
 // encoder
 volatile boolean encoderPinAtZero = false;
 volatile int encoderTicks = 0;
-const int gearRatio = 180; 
+const int gearRatio = 180; // 180 for older version of SPG30E-60K, 420 for newer
 volatile boolean readEncoder = false;
 volatile unsigned long lastEncoderTick = 0;
 volatile boolean stopdetected = false;
@@ -156,7 +155,10 @@ void setup() {
 	pinMode(encA, INPUT); 
 
 	//pwm frequencies setup (from http://playground.arduino.cc/Code/PwmFrequency)
-	TCCR2B = TCCR2B & 0b11111000 | 0x07;  // 30 Hz pin 3, 11 wheels
+	TCCR2B = TCCR2B & 0b11111000 | 0x07;  // 31250hz/1024=30 Hz pin 3, 11 wheels
+	// TCCR2B = TCCR2B & 0b11111000 | 0x04;  // 31250hz/64=488Hz pin 3, 11 wheels (usually arduino default)
+	// TCCR2B = TCCR2B & 0b11111000 | 0x02;  // 31250hz/8=3906Hz pin 3, 11 wheels (usually arduino default)
+	// TCCR2B = TCCR2B & 0b11111000 | 0x01;  // 31250hz pin 3, 11 wheels (usually arduino default)
 	TCCR0B = TCCR0B & 0b11111000 | 0x01; // pins 5, 6 62500/1 = 62kHz lights
 	
 	// motors fwd, off
@@ -430,14 +432,7 @@ void parseCommand(){
 	}
 	
 	else if (buffer[0] == 'h') { // hard stop
-		digitalWrite(in1, 0);
-		digitalWrite(in2, 0);
-		digitalWrite(in3, 0);
-		digitalWrite(in4, 0);
-		if (!stopped) {
-			stopCommand = time;
-			stopPending = true;	
-		}
+		hardstop();
 	}
 
 	else if(buffer[0] == 'x') Serial.println("<id::malgdb>");
@@ -553,6 +548,17 @@ void stop() {
 		stopCommand = time;
 		stopPending = true;	
 		stoptime = 0;
+	}
+}
+
+void hardstop() {
+	digitalWrite(in1, 0);
+	digitalWrite(in2, 0);
+	digitalWrite(in3, 0);
+	digitalWrite(in4, 0);
+	if (!stopped) {
+		stopCommand = time;
+		stopPending = true;	
 	}
 }
 
