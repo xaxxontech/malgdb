@@ -26,6 +26,9 @@ PING = 'c' (heartbeat)
 EEPROM_CLEAR = '8' (set entire eeprom bank to 0)
 EEPROM_READ = '9' (read camhoriz position) 
 SEND_SLAVEI2C_BYTE = 'a' [0-255] (send specified byte to I2C slave, optional peripheral)
+
+ENCB_HIGH = 'Q' (optional spare encoder pin HIGH)
+ENCB_LOW = 'W' (optional spare encoder pin LOW)
 */
 
 /*
@@ -76,6 +79,7 @@ const int eepromAddress = 0;
 
 // encoder
 const int encA = A0;
+const int ENCB = A1; // typically unused, available for other uses
 
 // spare 13, A2, A3, A1
 
@@ -114,7 +118,7 @@ boolean gyroFifoReadAfterStop = false;
 // encoder
 volatile boolean encoderPinAtZero = false;
 volatile int encoderTicks = 0;
-const int gearRatio = 180; // 180 for older version of SPG30E-60K, 420 for newer
+const int TICKSPERREV = 180; // 180 for older version of SPG30E-60K, 420 for newer
 volatile boolean readEncoder = false;
 volatile unsigned long lastEncoderTick = 0;
 volatile boolean stopdetected = false;
@@ -126,6 +130,7 @@ boolean stopped = true;
 boolean stopPending = false;
 unsigned long stopCommand = 0;
 const unsigned long allowforstop = 1000;
+const long STOPTHRESHOLD = 25; // milliseconds, 25 for older version of SPG30E-60K, 11 for newer
 
 
 void setup() { 
@@ -153,11 +158,13 @@ void setup() {
 	pinMode(fwdFloodPin, OUTPUT); 
 	
 	pinMode(encA, INPUT); 
+	pinMode(ENCB, OUTPUT); // set to input if used as 2nd encoder pin
+	digitalWrite(ENCB, LOW);
 
 	//pwm frequencies setup (from http://playground.arduino.cc/Code/PwmFrequency)
 	TCCR2B = TCCR2B & 0b11111000 | 0x07;  // 31250hz/1024=30 Hz pin 3, 11 wheels
-	// TCCR2B = TCCR2B & 0b11111000 | 0x04;  // 31250hz/64=488Hz pin 3, 11 wheels (usually arduino default)
-	// TCCR2B = TCCR2B & 0b11111000 | 0x02;  // 31250hz/8=3906Hz pin 3, 11 wheels (usually arduino default)
+	// TCCR2B = TCCR2B & 0b11111000 | 0x04;  // 31250hz/64=488Hz pin 3, 11 wheels  
+	// TCCR2B = TCCR2B & 0b11111000 | 0x02;  // 31250hz/8=3906Hz pin 3, 11 wheels 
 	// TCCR2B = TCCR2B & 0b11111000 | 0x01;  // 31250hz pin 3, 11 wheels (usually arduino default)
 	TCCR0B = TCCR0B & 0b11111000 | 0x01; // pins 5, 6 62500/1 = 62kHz lights
 	
@@ -292,6 +299,7 @@ void allOff() {
 	analogWrite(pwmA, 0); 
 	analogWrite(pwmB, 0);
 	camservo.detach();
+	digitalWrite(ENCB, LOW);
 }
 
 void parseCommand(){
@@ -477,6 +485,12 @@ void parseCommand(){
 	else if (buffer[0] == 'a') {
 		// I2c.write(SLAVEI2C, 0x00, buffer[1]); // TODO: fix
 	}
+	else if (buffer[0] == 'Q') {
+		digitalWrite(ENCB, HIGH);
+	}
+	else if (buffer[0] == 'W') {
+		digitalWrite(ENCB, LOW);
+	}
 	
 /* end of command buffer[0] list */	
 
@@ -526,7 +540,7 @@ boolean getGyroFIFOcontents() {
 void printMoved() {
 	double revs = 0;
 	if (directioncmd ==1 || directioncmd == 2) {
-		revs = (double) encoderTicks/gearRatio;
+		revs = (double) encoderTicks/TICKSPERREV;
 		if (directioncmd==2) revs *= -1;
 	}
 	encoderTicks = 0;
@@ -582,7 +596,7 @@ ISR(PCINT1_vect) {
 			encoderPinAtZero = false;
 			encoderTicks ++;
 			unsigned long t = millis()/timemult;
-			if (t - lastEncoderTick > 25) { stopdetected = true; } // was 25
+			if (t - lastEncoderTick > STOPTHRESHOLD) { stopdetected = true; } // was 25
 			lastEncoderTick = t;
 		}
 	}
@@ -605,6 +619,6 @@ byte gyroRead(int addr) {
 }
 
 void version() {
-	Serial.println("<version:1.15>"); 
+	Serial.println("<version:1.16>"); 
 }
 
