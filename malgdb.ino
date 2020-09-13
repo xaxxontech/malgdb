@@ -158,8 +158,8 @@ void setup() {
 	pinMode(fwdFloodPin, OUTPUT); 
 	
 	pinMode(encA, INPUT); 
-	pinMode(ENCB, OUTPUT); // set to input if used as 2nd encoder pin
-	digitalWrite(ENCB, LOW);
+	pinMode(ENCB, OUTPUT); // only if ENCB not used as 2nd encoder pin
+	encBdefault(); 
 
 	//pwm frequencies setup (from http://playground.arduino.cc/Code/PwmFrequency)
 	TCCR2B = TCCR2B & 0b11111000 | 0x07;  // 31250hz/1024=30 Hz pin 3, 11 wheels
@@ -299,7 +299,7 @@ void allOff() {
 	analogWrite(pwmA, 0); 
 	analogWrite(pwmB, 0);
 	camservo.detach();
-	digitalWrite(ENCB, LOW);
+	encBdefault();
 }
 
 void parseCommand(){
@@ -618,7 +618,12 @@ byte gyroRead(int addr) {
 	return a;
 }
 
+// disable this function if ENCB used as 2nd encoder pin
+void encBdefault() {
+	digitalWrite(ENCB, HIGH);
+}
+
 void version() {
-	Serial.println("<version:1.16>"); 
+	Serial.println("<version:1.17>"); 
 }
 
